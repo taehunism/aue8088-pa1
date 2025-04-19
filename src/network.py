@@ -12,7 +12,7 @@ from torchvision.models.alexnet import AlexNet
 import torch
 
 # Custom packages
-from src.metric import MyAccuracy
+from src.metric import MyAccuracy, MyF1Score
 import src.config as cfg
 from src.util import show_setting
 
@@ -54,8 +54,9 @@ class SimpleClassifier(LightningModule):
         # Loss function
         self.loss_fn = nn.CrossEntropyLoss()
 
-        # Metric
+        # Metrics
         self.accuracy = MyAccuracy()
+        self.f1_score = MyF1Score(num_classes=num_classes)
 
         # Hyperparameters
         self.save_hyperparameters()
@@ -79,15 +80,23 @@ class SimpleClassifier(LightningModule):
     def training_step(self, batch, batch_idx):
         loss, scores, y = self._common_step(batch)
         accuracy = self.accuracy(scores, y)
-        self.log_dict({'loss/train': loss, 'accuracy/train': accuracy},
-                      on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        f1 = self.f1_score(scores, y)
+        self.log_dict({
+            'loss/train': loss,
+            'accuracy/train': accuracy,
+            'f1/train': f1
+        }, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, scores, y = self._common_step(batch)
         accuracy = self.accuracy(scores, y)
-        self.log_dict({'loss/val': loss, 'accuracy/val': accuracy},
-                      on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        f1 = self.f1_score(scores, y)
+        self.log_dict({
+            'loss/val': loss,
+            'accuracy/val': accuracy,
+            'f1/val': f1
+        }, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self._wandb_log_image(batch, batch_idx, scores, frequency = cfg.WANDB_IMG_LOG_FREQ)
 
     def _common_step(self, batch):
@@ -107,5 +116,5 @@ class SimpleClassifier(LightningModule):
             preds = torch.argmax(preds, dim=1)
             self.logger.log_image(
                 key=f'pred/val/batch{batch_idx:5d}_sample_0',
-                images=[x[0].to('cpu')],
+                images=[x[0].to('cuda')],
                 caption=[f'GT: {y[0].item()}, Pred: {preds[0].item()}'])
