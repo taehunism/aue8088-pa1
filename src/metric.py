@@ -1,54 +1,59 @@
 from torchmetrics import Metric
+# from torchmetrics.classification import MulticlassPrecisionRecallCurve
 import torch
 
-# [TODO] Implement this!
 class MyF1Score(Metric):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes: int):
         super().__init__()
         self.num_classes = num_classes
-        self.add_state('true_positives', default=torch.zeros(num_classes), dist_reduce_fx='sum')
-        self.add_state('false_positives', default=torch.zeros(num_classes), dist_reduce_fx='sum')
-        self.add_state('false_negatives', default=torch.zeros(num_classes), dist_reduce_fx='sum')
-
-    def update(self, preds, target):
-        preds = torch.argmax(preds, dim=1)
-        assert preds.shape == target.shape
         
-        # 벡터화 연산으로 성능 개선
-        for c in range(self.num_classes):
-            self.true_positives[c] += ((preds == c) & (target == c)).sum()
-            self.false_positives[c] += ((preds == c) & (target != c)).sum()
-            self.false_negatives[c] += ((preds != c) & (target == c)).sum()
+        # F1 계산을 위한 상태 초기화
+        self.add_state("tp", default=torch.zeros(num_classes), dist_reduce_fx="sum")
+        self.add_state("fp", default=torch.zeros(num_classes), dist_reduce_fx="sum")
+        self.add_state("fn", default=torch.zeros(num_classes), dist_reduce_fx="sum")
+        
+        # PR Curve 계산을 위한 내장 메트릭
+        # self.pr_curve = MulticlassPrecisionRecallCurve(num_classes=num_classes)
 
-    def compute(self):
-        eps = 1e-9
-        precision = self.true_positives / (self.true_positives + self.false_positives + eps)
-        recall = self.true_positives / (self.true_positives + self.false_negatives + eps)
+    def update(self, preds: torch.Tensor, target: torch.Tensor):
+        """preds: [B, C] shape의 로짓 텐서, target: [B] shape의 정답 레이블"""
+        # 클래스 예측값 계산
+        pred_labels = torch.argmax(preds, dim=1)
+        # assert preds.shape == target.shape
+        
+        # F1 통계량 누적
+        for c in range(self.num_classes):
+            self.tp[c] += ((pred_labels == c) & (target == c)).sum()
+            self.fp[c] += ((pred_labels == c) & (target != c)).sum()
+            self.fn[c] += ((pred_labels != c) & (target == c)).sum()
+        
+        # PR Curve 업데이트 (로짓 전달)
+        # self.pr_curve.update(preds, target)
+
+    def compute(self) -> tuple:
+        """(macro_f1, pr_curve) 반환"""
+        eps = 1e-9  # 0 나눗셈 방지
+        
+        precision = self.tp / (self.tp + self.fp + eps)
+        recall = self.tp / (self.tp + self.fn + eps)
         f1 = 2 * (precision * recall) / (precision + recall + eps)
-        return f1.mean()  # Macro F1
+        
+        # pr = self.pr_curve.compute()  # (precision, recall, thresholds)
+        
+        return f1.mean()
 
 class MyAccuracy(Metric):
     def __init__(self):
         super().__init__()
-        self.add_state('total', default=torch.tensor(0), dist_reduce_fx='sum')
-        self.add_state('correct', default=torch.tensor(0), dist_reduce_fx='sum')
+        self.add_state("correct", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
 
-    def update(self, preds, target):
-        # [TODO] The preds (B x C tensor), so take argmax to get index with highest confidence
-        preds = torch.argmax(preds, dim=1)
-
-        # [TODO] check if preds and target have equal shape
-        if preds.shape != target.shape:
-            raise ValueError("preds and target must have the same shape")   
-
-        # [TODO] Count the number of correct prediction
-        correct = torch.sum(preds == target)
+    def update(self, preds: torch.Tensor, target: torch.Tensor):
+        pred_labels = torch.argmax(preds, dim=1)
+        assert pred_labels.shape == target.shape, "Unequal Pred and Target"
         
-        # Accumulate to self.correct
-        self.correct += correct
-
-        # Count the number of elements in target
+        self.correct += torch.sum(pred_labels == target)
         self.total += target.numel()
 
-    def compute(self):
+    def compute(self) -> torch.Tensor:
         return self.correct.float() / self.total.float()
