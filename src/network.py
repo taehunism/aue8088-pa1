@@ -6,8 +6,10 @@ import copy
 # PyTorch & Pytorch Lightning
 from lightning.pytorch import LightningModule
 from lightning.pytorch.loggers.wandb import WandbLogger
+
 from torch import nn
 import torch.nn as nn
+
 from torchvision import models
 from torchvision.models.alexnet import AlexNet
 from torchvision.models import resnet18
@@ -17,55 +19,101 @@ import torch
 from src.metric import MyAccuracy, MyF1Score 
 import src.config as cfg
 from src.util import show_setting
-
+from ptflops import get_model_complexity_info
 import wandb
 
 # [TODO: Optional] Rewrite this class if you want
-# class MyNetwork(AlexNet):
+class MyTinyNet(nn.Module):
+    def __init__(self, num_classes=200):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1),   # 64 → 32
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), # 32 → 16
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),                  # 16 → 8
+
+            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),# 8 → 4
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),                  # 4 → 2
+
+            nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1),# 2 → 1
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            # 마지막 MaxPool 생략
+        )
+        self.classifier = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(512 * 1 * 1, 1024),  # Feature map size가 1x1임!
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(1024, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)  # Flatten
+        x = self.classifier(x)
+        return x
+    
 class CustomResNet18(nn.Module):
     def __init__(self, num_classes=200):
         super().__init__()
-
-        # [TODO] Modify feature extractor part in AlexNet
-       # 1. ResNet18 기본 구조 로드
         self.model = models.resnet18(weights=None)
-        
-        # 2. 64x64 입력을 위한 초기 레이어 수정
-        self.model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.model.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)  # stride=2 복원
+
+        # 입력 해상도 64x64에 적합하게 conv1 stride 수정
+        self.model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)  # 64 → 32
+        self.model.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)                # 32 → 16
+
+        # 분류기 수정
         self.model.fc = nn.Sequential(
             nn.Dropout(0.5),
             nn.Linear(512, num_classes)
         )
-        
+
     def forward(self, x):
         return self.model(x)
-
-    # def forward(self, x: torch.Tensor) -> torch.Tensor:
-    #     # [TODO: Optional] Modify this as well if you want
-    #     x = self.features(x)
-    #     x = self.avgpool(x)
-    #     x = torch.flatten(x, 1)
-    #     x = self.classifier(x)
-    #     return x
+    
+def compute_flops(model: nn.Module, input_res=(3, 64, 64)):
+    model.eval()
+    with torch.cuda.device(0):  # CUDA 디바이스에서 계산 (없으면 삭제)
+        macs, params = get_model_complexity_info(
+            model,
+            input_res,
+            as_strings=False,
+            print_per_layer_stat=False,
+            verbose=False
+        )
+    flops = macs * 2  # 1 MAC = 2 FLOPs
+    return flops, params
 
 class SimpleClassifier(LightningModule):
     def __init__(self,
-                #  model_name: str = 'resnet18',
-                 model_name: str = 'MyResNet',
-                 num_classes: int = 200,
-                 optimizer_params: Dict = dict(),
-                 scheduler_params: Dict = dict(),
+                # model_name: str = 'resnet18',
+                #  model_name: str = 'MyTinyNet',
+                model_name: str = cfg.MODEL_NAME,
+                num_classes: int = 200,
+                optimizer_params: Dict = dict(),
+                scheduler_params: Dict = dict(),
         ):
         super().__init__()
-
         # Network
-        # if model_name == 'MyNetwork':
-        if model_name == 'MyResNet':
-            self.model = CustomResNet18(num_classes).to(self.device)
-        # if model_name == 'resnet18':
-        #     self.model = models.resnet18(weights='IMAGENET1K_V1')
-        #     self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+        if model_name == 'MyTinyNet':
+            self.model = MyTinyNet(num_classes).to(self.device)
+        elif model_name == 'resnet18':
+            self.model = models.resnet18(weights=None)
+            self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+            
+        elif model_name.startswith('efficientnet'):
+            self.model = getattr(models, model_name)(weights=None)
+
+            in_features = self.model.classifier[-1].in_features
+            self.model.classifier[-1] = nn.Linear(in_features, num_classes)
+
         else:
             models_list = models.list_models()
             assert model_name in models_list, f'Unknown model name: {model_name}. Choose one from {", ".join(models_list)}'
@@ -75,7 +123,9 @@ class SimpleClassifier(LightningModule):
         self.loss_fn = nn.CrossEntropyLoss()
 
         # Metric
-        self.accuracy = MyAccuracy().to(self.device)
+        self.train_accuracy = MyAccuracy().to(self.device)
+        self.val_accuracy = MyAccuracy().to(self.device)
+        
         self.train_f1 = MyF1Score(num_classes=num_classes).to(self.device)
         self.val_f1 = MyF1Score(num_classes=num_classes).to(self.device)
         
@@ -84,6 +134,18 @@ class SimpleClassifier(LightningModule):
 
     def on_train_start(self):
         show_setting(cfg)
+        
+        if isinstance(self.logger, WandbLogger):
+            try:
+                dummy_input_shape = (3, 64, 64)
+                flops, params = compute_flops(self.model, dummy_input_shape)
+
+                self.logger.experiment.summary["FLOPs"] = flops
+                self.logger.experiment.summary["Params"] = params
+                self.print(colored(f"[FLOPs] {flops/1e6:.2f} MFLOPs | [Params] {params/1e6:.2f} M", "green"))
+                
+            except Exception as e:
+                self.print(colored(f"[FLOPs 계산 실패] {e}", "red"))
 
     def configure_optimizers(self):
         optim_params = copy.deepcopy(self.hparams.optimizer_params)
@@ -100,7 +162,7 @@ class SimpleClassifier(LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, scores, y = self._common_step(batch)
-        accuracy = self.accuracy(scores, y)
+        accuracy = self.train_accuracy(scores, y)
         # f1, pr = self.f1_score(scores, y)
         self.train_f1(scores, y)
         
@@ -110,7 +172,7 @@ class SimpleClassifier(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         loss, scores, y = self._common_step(batch)
-        accuracy = self.accuracy(scores, y)
+        accuracy = self.val_accuracy(scores, y)
         # f1, pr = self.f1_score(scores, y)
         self.val_f1(scores, y)
         
@@ -167,3 +229,23 @@ class SimpleClassifier(LightningModule):
                 key=f'pred/val/batch{batch_idx:5d}_sample_0',
                 images=[x[0]],
                 caption=[f'GT: {y[0].item()}, Pred: {preds[0].item()}'])
+            
+    def on_train_epoch_end(self):
+        self.train_accuracy.reset()
+        self.train_f1.reset()
+
+    def on_validation_epoch_end(self):
+        self.val_accuracy.reset()
+        self.val_f1.reset()
+        
+        if isinstance(self.logger, WandbLogger):
+            # 현재 epoch의 평균 accuracy
+            current_acc = self.trainer.callback_metrics.get("accuracy/val")
+            prev_best = self.logger.experiment.summary.get("best_val_acc", 0.0)
+            self.logger.experiment.summary["best_val_f1"] = self.trainer.callback_metrics.get("f1/val")
+            self.logger.experiment.summary["best_val_loss"] = self.trainer.callback_metrics.get("loss/val")
+
+            # current_acc가 더 높으면 best_val_acc 업데이트
+            if current_acc is not None and current_acc > prev_best:
+                self.logger.experiment.summary["best_val_acc"] = current_acc
+            

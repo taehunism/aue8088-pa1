@@ -2,43 +2,61 @@ import os
 
 # Training Hyperparameters
 NUM_CLASSES         = 200 # 분류할 클래스의 개수
-BATCH_SIZE          = 128 # 모델에 입력되는 샘플 수 , 크면 학습이 안정적인데 , GPU 사용량 증가
+BATCH_SIZE          = 512 # 모델에 입력되는 샘플 수 , 크면 학습이 안정적인데 , GPU 사용량 증가
 VAL_EVERY_N_EPOCH   = 1 # n 에폭 마다 validation 진행
 
-NUM_EPOCHS          = 100 # 총 에폭
+NUM_EPOCHS          = 40 # 총 에폭
+
 # OPTIMIZER_PARAMS    = {
-#     'type': 'Adam',
-#     'lr': 0.001,
-#     'weight_decay': 0.001,  # L2 정규화 추가
-#     'betas': (0.9, 0.999),   # Adam의 모멘텀 파라미터
-#     'eps': 1e-8,            # 수치 안정성을 위한 엡실론
+#     'type': 'AdamW',
+#     'lr': 3e-4,
+#     'weight_decay': 1e-4,  # L2 정규화 추가
 # }
+
+OPTIMIZER_PARAMS    = {
+    'type': 'AdamW',
+    'lr': 4e-4,
+    'weight_decay': 4e-5,  # L2 정규화 추가
+}
+
+SCHEDULER_PARAMS    = {
+    'type': 'CosineAnnealingLR',
+    'T_max': 40,
+    'eta_min': 4e-6
+}
+
 # OPTIMIZER_PARAMS    = {
 #     'type': 'SGD',
 #     'lr': 0.1,
 #     'momentum':0.9,
 #     'weight_decay': 5e-4,
 #     'nesterov':True    
-# # }
+# }
 
-SCHEDULER_PARAMS    = {
-    'type': 'MultiStepLR',
-    'milestones': [25, 35],
-    'gamma': 0.1
-}
+# SCHEDULER_PARAMS    = {
+#     'type': 'MultiStepLR',
+#     'milestones': [25, 35, 45, 55, 65, 75],
+#     'gamma': 0.2
+# }
+
+EFFNET_PARAMS = dict(
+    depth_mult=1.0,     # d
+    width_mult=1.0,     # w
+    resolution=224,     # r
+)
+
 #마일스톤 50 에폭과 75 에폭에 러닝 레이트 gamma배로 줄임 -> 총 에폭보다 낮은 마일 스톤 써야함
 
-OPTIMIZER_PARAMS = {
-    'type': 'SGD',
-    'lr': 0.1,
-    'momentum': 0.9,
-    'weight_decay': 5e-4,
-    'nesterov': True
-}
+# OPTIMIZER_PARAMS = {
+#     'type': 'SGD',
+#     'lr': 0.1,
+#     'momentum': 0.9,
+#     'weight_decay': 5e-4,
+# }
 
 # Model parameters
-DROPOUT_RATE       = 0.3
-LABEL_SMOOTHING    = 0.2
+DROPOUT_RATE       = 0.5
+LABEL_SMOOTHING    = 0.1
 
 # Data Augmentation parameters
 COLOR_JITTER       = {
@@ -50,13 +68,13 @@ COLOR_JITTER       = {
 
 # Dataaset
 DATASET_ROOT_PATH   = 'datasets/'
-NUM_WORKERS         = 4 #데이터 로딩 할 때 사용할 subprocess 수 , 시스템 리소스 고려
+NUM_WORKERS         = 8 #데이터 로딩 할 때 사용할 subprocess 수 , 시스템 리소스 고려
 
 # Augmentation
 IMAGE_ROTATION      = 30 # 이미지 랜덤 회전 각도 범위
 IMAGE_FLIP_PROB     = 0.7 # 좌우 반전 확률
 IMAGE_NUM_CROPS     = 64 #64 # Crop 생성할 횟수
-IMAGE_PAD_CROPS     = 4 #4 패딩 후 Crop을 수행 할 때 padding의 크기
+IMAGE_PAD_CROPS     = 8 #4 패딩 후 Crop을 수행 할 때 padding의 크기
 IMAGE_MEAN          = [0.4802, 0.4481, 0.3975] # 이미지 정규화에 사용하는 mean/std
 IMAGE_STD           = [0.2302, 0.2265, 0.2262] # Tiny ImageNet의 RGB 채널 별 평균과 표준편차
 
@@ -67,11 +85,13 @@ RANDOM_ERASING = {
 }
 
 # Network
-MODEL_NAME          = 'resnet18' #torchvision의 resnet18 사용
+#MODEL_NAME          = 'resnet18' #torchvision의 resnet18 사용
+#MODEL_NAME          = 'mynet' #my network
+MODEL_NAME          = 'efficientnet_b0' #torchvision의 efficientnet_b0 사용
 
 # Compute related
 ACCELERATOR         = 'gpu' # CUDA 가속기 
-DEVICES             = 1#[0] # 0번 gpu, 여러개면 [0,1,n-1,n]
+DEVICES             = 1 # 0번 gpu, 여러개면 [0,1,n-1,n]
 PRECISION_STR       = '32-true' # 학습 정밀도 
 
 # Logging
