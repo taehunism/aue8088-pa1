@@ -7,23 +7,38 @@ VAL_EVERY_N_EPOCH   = 1 # n 에폭 마다 validation 진행
 
 NUM_EPOCHS          = 40 # 총 에폭
 
+OPTIMIZER_PARAMS = {
+    'type': 'Adam',
+    'lr': 1e-3,
+    'betas': (0.9, 0.999),
+    'eps': 1e-8,
+    'weight_decay': 1e-3
+}
+
+SCHEDULER_PARAMS = {
+    'type': 'MultiStepLR',
+    'milestones': [25, 35],
+    'gamma': 0.1
+}
+
 # OPTIMIZER_PARAMS    = {
 #     'type': 'AdamW',
-#     'lr': 3e-4,
-#     'weight_decay': 1e-4,  # L2 정규화 추가
+#     'lr': 4e-4,
+#     'weight_decay': 4e-5,  # L2 정규화 추가
 # }
 
-OPTIMIZER_PARAMS    = {
-    'type': 'AdamW',
-    'lr': 4e-4,
-    'weight_decay': 4e-5,  # L2 정규화 추가
-}
+# SCHEDULER_PARAMS    = {
+#     'type': 'CosineAnnealingLR',
+#     'T_max': 40,
+#     'eta_min': 4e-6
+# }
 
-SCHEDULER_PARAMS    = {
-    'type': 'CosineAnnealingLR',
-    'T_max': 40,
-    'eta_min': 4e-6
-}
+# SCHEDULER_PARAMS = {
+#     'type': 'OneCycleLR',  # Cosine → OneCycleLR로 변경
+#     'max_lr': 4e-4,
+#     'total_steps': NUM_EPOCHS * (100000//BATCH_SIZE),
+#     'pct_start': 0.3,
+# }
 
 # OPTIMIZER_PARAMS    = {
 #     'type': 'SGD',
@@ -33,17 +48,7 @@ SCHEDULER_PARAMS    = {
 #     'nesterov':True    
 # }
 
-# SCHEDULER_PARAMS    = {
-#     'type': 'MultiStepLR',
-#     'milestones': [25, 35, 45, 55, 65, 75],
-#     'gamma': 0.2
-# }
 
-EFFNET_PARAMS = dict(
-    depth_mult=1.0,     # d
-    width_mult=1.0,     # w
-    resolution=224,     # r
-)
 
 #마일스톤 50 에폭과 75 에폭에 러닝 레이트 gamma배로 줄임 -> 총 에폭보다 낮은 마일 스톤 써야함
 
@@ -87,12 +92,13 @@ RANDOM_ERASING = {
 # Network
 #MODEL_NAME          = 'resnet18' #torchvision의 resnet18 사용
 #MODEL_NAME          = 'mynet' #my network
-MODEL_NAME          = 'efficientnet_b0' #torchvision의 efficientnet_b0 사용
+MODEL_NAME = 'MyTinyNet'
 
 # Compute related
 ACCELERATOR         = 'gpu' # CUDA 가속기 
 DEVICES             = 1 # 0번 gpu, 여러개면 [0,1,n-1,n]
-PRECISION_STR       = '32-true' # 학습 정밀도 
+# PRECISION_STR       = '32-true' # 학습 정밀도 
+PRECISION_STR       = '16-mixed' # 학습 정밀도 
 
 # Logging
 WANDB_PROJECT       = 'aue8088-pa1'
