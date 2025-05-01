@@ -23,14 +23,14 @@ SCHEDULER_PARAMS = {
 
 # OPTIMIZER_PARAMS    = {
 #     'type': 'AdamW',
-#     'lr': 4e-4,
-#     'weight_decay': 4e-5,  # L2 정규화 추가
+#     'lr': 3e-4,
+#     'weight_decay': 1e-4,  # L2 정규화 추가
 # }
 
 # SCHEDULER_PARAMS    = {
 #     'type': 'CosineAnnealingLR',
 #     'T_max': 40,
-#     'eta_min': 4e-6
+#     'eta_min': 1e-6
 # }
 
 # SCHEDULER_PARAMS = {
@@ -48,8 +48,6 @@ SCHEDULER_PARAMS = {
 #     'nesterov':True    
 # }
 
-
-
 #마일스톤 50 에폭과 75 에폭에 러닝 레이트 gamma배로 줄임 -> 총 에폭보다 낮은 마일 스톤 써야함
 
 # OPTIMIZER_PARAMS = {
@@ -60,14 +58,14 @@ SCHEDULER_PARAMS = {
 # }
 
 # Model parameters
-DROPOUT_RATE       = 0.5
+DROPOUT_RATE       = 0.3
 LABEL_SMOOTHING    = 0.1
 
 # Data Augmentation parameters
 COLOR_JITTER       = {
-    'brightness': 0.4,
-    'contrast': 0.4,
-    'saturation': 0.4,
+    'brightness': 0.2,
+    'contrast': 0.2,
+    'saturation': 0.2,
     'hue': 0.1
 }
 
@@ -90,15 +88,15 @@ RANDOM_ERASING = {
 }
 
 # Network
-#MODEL_NAME          = 'resnet18' #torchvision의 resnet18 사용
+MODEL_NAME          = 'resnet18' #torchvision의 resnet18 사용
 #MODEL_NAME          = 'mynet' #my network
-MODEL_NAME = 'MyTinyNet'
+# MODEL_NAME = 'MyTinyNet'
 
 # Compute related
 ACCELERATOR         = 'gpu' # CUDA 가속기 
 DEVICES             = 1 # 0번 gpu, 여러개면 [0,1,n-1,n]
-# PRECISION_STR       = '32-true' # 학습 정밀도 
-PRECISION_STR       = '16-mixed' # 학습 정밀도 
+PRECISION_STR       = '32-true' # 학습 정밀도 
+# PRECISION_STR       = '16-mixed' # 학습 정밀도 
 
 # Logging
 WANDB_PROJECT       = 'aue8088-pa1'

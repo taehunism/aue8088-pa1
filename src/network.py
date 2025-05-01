@@ -400,6 +400,8 @@ class MyTinyNet(nn.Module):
         x = self.features(x)
         x = self.classifier(x)
         return x
+
+
     
 class CustomResNet18(nn.Module):
     def __init__(self, num_classes=200):
