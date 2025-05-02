@@ -88,9 +88,9 @@ RANDOM_ERASING = {
 }
 
 # Network
-MODEL_NAME          = 'resnet18' #torchvision의 resnet18 사용
+# MODEL_NAME          = 'resnet18' #torchvision의 resnet18 사용
 #MODEL_NAME          = 'mynet' #my network
-# MODEL_NAME = 'MyTinyNet'
+MODEL_NAME = 'MyTinyNet'
 
 # Compute related
 ACCELERATOR         = 'gpu' # CUDA 가속기 

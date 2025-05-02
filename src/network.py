@@ -24,260 +24,6 @@ from src.util import show_setting
 import wandb
 
 # [TODO: Optional] Rewrite this class if you want
-class SEBlock(nn.Module):
-    def __init__(self, channels, reduction=8):
-        super().__init__()
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(channels, channels // reduction),
-            nn.ReLU(inplace=True),
-            nn.Linear(channels // reduction, channels),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        w = self.fc(self.pool(x)).view(b, c, 1, 1)
-        return x * w
-    
-# 그룹별 채널 셔플링으로 정보 교환 향상
-class ChannelShuffle(nn.Module):
-    def __init__(self, groups=4):
-        super().__init__()
-        self.groups = groups
-    def forward(self, x):
-        b, c, h, w = x.size()
-        x = x.view(b, self.groups, c//self.groups, h, w)
-        x = torch.transpose(x, 1, 2).contiguous()
-        return x.view(b, c, h, w)
-    
-# 학습 시 20% 확률로 레이어 생략
-class StochasticDepth(nn.Module):
-    def __init__(self, p=0.2):
-        super().__init__()
-        self.p = p
-    def forward(self, x):
-        if not self.training or torch.rand(1)[0] > self.p:
-            return x
-        return x * 0.5  # residual scale
-
-class GhostModule(nn.Module):
-    def __init__(self, in_c, out_c, ratio=2):
-        super().__init__()
-        init_c = out_c // ratio
-        ghost_c = out_c - init_c
-        self.primary = nn.Conv2d(in_c, init_c, 1, bias=False)
-        self.cheap = nn.Conv2d(init_c, ghost_c, 3, 1, 1, groups=init_c, bias=False)
-    
-    def forward(self, x):
-        primary = self.primary(x)
-        ghost = self.cheap(primary)
-        return torch.cat([primary, ghost], dim=1)
-    
-class DepthwiseSeparableConv(nn.Module):
-    def __init__(self, in_c, out_c, stride=1):
-        super().__init__()
-        self.depthwise = nn.Conv2d(in_c, in_c, 3, stride, 1, groups=in_c, bias=False)
-        self.pointwise = nn.Conv2d(in_c, out_c, 1, 1, 0, bias=False)
-        
-    def forward(self, x):
-        return self.pointwise(self.depthwise(x))
-    
-# class MyTinyNet(nn.Module):
-#     def __init__(self, num_classes=200):
-#         super().__init__()
-        
-#         # self.features = nn.Sequential(
-#         #     nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1),
-#         #     nn.BatchNorm2d(64),
-#         #     nn.ReLU(inplace=True),
-#         #     SEBlock(64),
-            
-#         #     nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-#         #     nn.BatchNorm2d(128),
-#         #     nn.ReLU(inplace=True),
-#         #     SEBlock(128),
-#         #     nn.MaxPool2d(kernel_size=2, stride=2),  # 64x64 → 32x32
-            
-
-#         #     nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-#         #     nn.BatchNorm2d(256),
-#         #     nn.ReLU(inplace=True),
-#         #     SEBlock(256),
-#         #     nn.MaxPool2d(kernel_size=2, stride=2),  # 32x32 → 16x16
-            
-#         #     nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1),
-#         #     nn.BatchNorm2d(512),
-#         #     nn.ReLU(inplace=True),
-#         #     nn.AdaptiveAvgPool2d(1),
-#         #     )
-        
-#         # self.classifier = nn.Sequential(
-#         #     nn.Dropout(cfg.DROPOUT_RATE),
-#         #     nn.Linear(512, 1024),
-#         #     nn.ReLU(inplace=True),
-#         #     nn.Dropout(cfg.DROPOUT_RATE),
-#         #     nn.Linear(1024, num_classes)
-#         # )
-        
-#         # Depthwise Separable Conv 적용 (경량화)
-#         def depthwise_conv(in_c, out_c, stride=1):
-#             return nn.Sequential(
-#                 nn.Conv2d(in_c, in_c, 3, stride, 1, groups=in_c, bias=False),
-#                 nn.BatchNorm2d(in_c),
-#                 nn.Conv2d(in_c, out_c, 1, 1, 0, bias=False),
-#                 # nn.BatchNorm2d(out_c),
-#                 # nn.ReLU(inplace=True)
-#             )
-            
-#         self.features = nn.Sequential(
-#             nn.Conv2d(3, 64, 3, 1, 1),
-#             nn.BatchNorm2d(64),
-#             nn.ReLU(inplace=True),
-#             SEBlock(64),
-            
-#             depthwise_conv(64, 128, stride=2),  # 64x64 → 32x32
-#             SEBlock(128),
-            
-#             depthwise_conv(128, 256, stride=2),  # 32x32 → 16x16
-#             SEBlock(256),
-            
-#             nn.Conv2d(256, 512, 3, 1, 1),
-#             nn.BatchNorm2d(512),
-#             nn.ReLU(inplace=True),
-#             ChannelShuffle(groups=4),  # 채널 셔플 추가
-#             StochasticDepth(p=0.3),  # 20% 확률로 레이어 스킵
-#             nn.AdaptiveAvgPool2d(1),
-#         )
-        
-#         self.classifier = nn.Sequential(
-#             nn.Dropout(cfg.DROPOUT_RATE),
-#             nn.Linear(512, 512),  # 1024 → 512로 축소
-#             nn.BatchNorm1d(512),  # FC 레이어에도 BN 적용
-#             nn.ReLU(inplace=True),
-#             nn.Dropout(cfg.DROPOUT_RATE),
-#             nn.Linear(512, num_classes)
-#         )
-        
-#         # self.features = nn.Sequential(
-#         #     DepthwiseSeparableConv(3, 32),  # 64 → 32
-#         #     nn.BatchNorm2d(32),
-#         #     nn.ReLU(inplace=True),
-            
-#         #     nn.MaxPool2d(2, 2),  # 64x64 → 32x32
-            
-#         #     DepthwiseSeparableConv(32, 64),  # 128 → 64
-#         #     nn.BatchNorm2d(64),
-#         #     nn.ReLU(inplace=True),
-            
-#         #     nn.MaxPool2d(2, 2),  # 32x32 → 16x16
-            
-#         #     DepthwiseSeparableConv(64, 128),  # 256 → 128
-#         #     nn.BatchNorm2d(128),
-#         #     nn.ReLU(inplace=True),
-            
-#         #     nn.AdaptiveAvgPool2d(1)  # 16x16 → 1x1
-#         # )
-#         # self.classifier = nn.Sequential(
-#         #     nn.Dropout(0.3),
-#         #     nn.Linear(128, 256),  # 1024 → 256
-#         #     nn.ReLU(inplace=True),
-#         #     nn.Linear(256, num_classes)
-#         # )
-
-#     def forward(self, x):
-#         x = self.features(x)
-#         x = x.view(x.size(0), -1)
-#         x = self.classifier(x)
-#         return x
-
-# class MyTinyNet(nn.Module):
-#     def __init__(self, num_classes=200, dropout_rate=0.3):
-#         super().__init__()
-
-#         class SEBlock(nn.Module):
-#             def __init__(self, channels, reduction=8):
-#                 super().__init__()
-#                 self.pool = nn.AdaptiveAvgPool2d(1)
-#                 self.fc = nn.Sequential(
-#                     nn.Flatten(),
-#                     nn.Linear(channels, channels // reduction),
-#                     nn.ReLU(inplace=True),
-#                     nn.Linear(channels // reduction, channels),
-#                     nn.Sigmoid()
-#                 )
-
-#             def forward(self, x):
-#                 b, c, _, _ = x.size()
-#                 w = self.fc(self.pool(x)).view(b, c, 1, 1)
-#                 return x * w
-
-#         class ChannelShuffle(nn.Module):
-#             def __init__(self, groups=4):
-#                 super().__init__()
-#                 self.groups = groups
-
-#             def forward(self, x):
-#                 b, c, h, w = x.size()
-#                 x = x.view(b, self.groups, c // self.groups, h, w)
-#                 x = x.transpose(1, 2).contiguous()
-#                 return x.view(b, c, h, w)
-
-#         class StochasticDepth(nn.Module):
-#             def __init__(self, p=0.2):
-#                 super().__init__()
-#                 self.p = p
-
-#             def forward(self, x):
-#                 if not self.training or torch.rand(1)[0] > self.p:
-#                     return x
-#                 return x * 0.5
-
-#         def depthwise_conv(in_c, out_c, stride=1):
-#             return nn.Sequential(
-#                 nn.Conv2d(in_c, in_c, 3, stride, 1, groups=in_c, bias=False),
-#                 nn.BatchNorm2d(in_c),
-#                 nn.Conv2d(in_c, out_c, 1, 1, 0, bias=False),
-#                 nn.BatchNorm2d(out_c),
-#                 nn.SiLU(inplace=True)  # Swish-variant
-#             )
-
-#         self.features = nn.Sequential(
-#             nn.Conv2d(3, 64, 3, 1, 1),
-#             nn.BatchNorm2d(64),
-#             nn.ReLU(inplace=True),
-#             SEBlock(64),
-
-#             depthwise_conv(64, 128, stride=2),  # 64x64 → 32x32
-#             SEBlock(128),
-
-#             depthwise_conv(128, 256, stride=2),  # 32x32 → 16x16
-#             SEBlock(256),
-
-#             nn.Conv2d(256, 512, 3, 1, 1),
-#             nn.BatchNorm2d(512),
-#             nn.ReLU(inplace=True),
-#             ChannelShuffle(groups=4),
-#             StochasticDepth(p=0.3),
-#             nn.AdaptiveAvgPool2d(1),
-#         )
-
-#         self.classifier = nn.Sequential(
-#             nn.Flatten(),
-#             nn.Dropout(dropout_rate),
-#             nn.Linear(512, 256),
-#             nn.BatchNorm1d(256),
-#             nn.ReLU(inplace=True),
-#             nn.Dropout(dropout_rate),
-#             nn.Linear(256, num_classes)
-#         )
-
-#     def forward(self, x):
-#         x = self.features(x)
-#         x = self.classifier(x)
-#         return x
-
 class MyTinyNet(nn.Module):
     def __init__(self, num_classes=200, dropout_rate=0.3):
         super().__init__()
@@ -401,7 +147,144 @@ class MyTinyNet(nn.Module):
         x = self.classifier(x)
         return x
 
+class LightSqueezeExcitation(nn.Module):
+    def __init__(self, channels, reduction=8):
+        super().__init__()
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels),
+            nn.Sigmoid()
+        )
 
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        weights = self.fc(self.global_pool(x).view(b, c))
+        return x * weights.view(b, c, 1, 1)
+
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super().__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size//2)
+        
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        x_att = torch.cat([avg_out, max_out], dim=1)
+        return x * torch.sigmoid(self.conv(x_att))
+
+class ChannelShuffle(nn.Module):
+    def __init__(self, groups=4):
+        super().__init__()
+        self.groups = groups
+
+    def forward(self, x):
+        b, c, h, w = x.size()
+        x = x.view(b, self.groups, c//self.groups, h, w)
+        x = x.transpose(1, 2).contiguous()
+        return x.view(b, -1, h, w)
+
+class StochasticDepth(nn.Module):
+    def __init__(self, p=0.2):
+        super().__init__()
+        self.p = p
+        
+    def forward(self, x):
+        if not self.training or torch.rand(1)[0] > self.p:
+            return x
+        return x * 0.5
+
+class EnhancedBasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super().__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False),
+            nn.BatchNorm2d(planes),
+            LightSqueezeExcitation(planes)  # LE 통합
+        )
+        
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(planes),
+            ChannelShuffle(groups=4)  # 채널 셔플
+        )
+        
+        self.spatial_att = SpatialAttention()
+        self.stochastic_depth = StochasticDepth(p=0.2)
+        self.downsample = downsample
+        self.stride = stride
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        identity = x
+
+        out = self.conv1(x)
+        out = self.conv2(out)
+        
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out = self.stochastic_depth(out) + identity
+        out = self.spatial_att(out)  # 공간 어텐션 적용
+        return self.relu(out)
+
+def ResNet18_Modified(num_classes=200):
+    class CustomResNet(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.inplanes = 64
+            self.conv1 = nn.Sequential(
+                nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False),
+                nn.BatchNorm2d(64),
+                nn.ReLU(inplace=True),
+                LightSqueezeExcitation(64)  # 초기 레이어에도 LE 적용
+            )
+            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+            
+            # 레이어 스택 구성
+            self.layer1 = self._make_layer(64, 64, 2, stride=1)
+            self.layer2 = self._make_layer(64, 128, 2, stride=2)
+            self.layer3 = self._make_layer(128, 256, 2, stride=2)
+            self.layer4 = self._make_layer(256, 512, 2, stride=2)
+            
+            self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+            self.fc = nn.Linear(512 * EnhancedBasicBlock.expansion, num_classes)
+
+        def _make_layer(self, inplanes, planes, blocks, stride):
+            downsample = None
+            if stride != 1 or self.inplanes != planes * EnhancedBasicBlock.expansion:
+                downsample = nn.Sequential(
+                    nn.Conv2d(self.inplanes, planes * EnhancedBasicBlock.expansion,
+                              kernel_size=1, stride=stride, bias=False),
+                    nn.BatchNorm2d(planes * EnhancedBasicBlock.expansion),
+                )
+
+            layers = []
+            layers.append(EnhancedBasicBlock(self.inplanes, planes, stride, downsample))
+            self.inplanes = planes * EnhancedBasicBlock.expansion
+            for _ in range(1, blocks):
+                layers.append(EnhancedBasicBlock(self.inplanes, planes))
+
+            return nn.Sequential(*layers)
+
+        def forward(self, x):
+            x = self.conv1(x)
+            x = self.maxpool(x)
+
+            x = self.layer1(x)
+            x = self.layer2(x)
+            x = self.layer3(x)
+            x = self.layer4(x)
+
+            x = self.avgpool(x)
+            x = torch.flatten(x, 1)
+            x = self.fc(x)
+            return x
+
+    return CustomResNet()
     
 class CustomResNet18(nn.Module):
     def __init__(self, num_classes=200):
